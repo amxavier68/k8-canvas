@@ -1,0 +1,30 @@
+{
+  "$schema": "https://schemas.wp.org/trunk/block.json",
+  "apiVersion": 3,
+  "name": "k8-canvas/responsive-panel",
+  "version": "0.1.0",
+  "title": "K8 Responsive Panel",
+  "category": "design",
+  "icon": "layout",
+  "description": "An editable responsive panel with safely scoped CSS declarations.",
+  "textdomain": "k8-canvas",
+  "attributes": {
+    "eyebrow": { "type": "string", "default": "K8 Canvas" },
+    "heading": { "type": "string", "default": "Build the useful bit first." },
+    "body": { "type": "string", "default": "A responsive WordPress block with scoped styling and no page-builder subscription." },
+    "ctaLabel": { "type": "string", "default": "Learn more" },
+    "ctaUrl": { "type": "string", "default": "#" },
+    "baseCss": { "type": "string", "default": "background: #101828; color: #ffffff; padding: 3rem; border-radius: 1rem;" },
+    "tabletCss": { "type": "string", "default": "padding: 2rem;" },
+    "mobileCss": { "type": "string", "default": "padding: 1.25rem; border-radius: 0.75rem;" }
+  },
+  "supports": {
+    "align": ["wide", "full"],
+    "anchor": true,
+    "html": false
+  },
+  "editorScript": "file:./editor.js",
+  "style": "file:./style.css",
+  "render": "file:./render.php"
+}
+

@@ -1,0 +1,14 @@
+{
+  "name": "k8-canvas",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --check plugin/k8-canvas/editor.js && node --check plugin/k8-canvas/css-policy.js && node --test",
+    "build:plugin": "node scripts/package-plugin.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

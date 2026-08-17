@@ -1,0 +1,57 @@
+.wp-block-k8-canvas-responsive-panel.k8-canvas-panel {
+  box-sizing: border-box;
+  container-type: inline-size;
+  margin-block: 1.5rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.k8-canvas-panel__eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin: 0 0 0.75rem;
+  text-transform: uppercase;
+}
+
+.k8-canvas-panel__heading {
+  font-size: clamp(1.75rem, 5vw, 3.5rem);
+  line-height: 1.08;
+  margin: 0;
+  max-width: 18ch;
+}
+
+.k8-canvas-panel__body {
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  line-height: 1.6;
+  margin: 1rem 0 0;
+  max-width: 62ch;
+}
+
+.k8-canvas-panel__cta {
+  align-items: center;
+  background: #fdb022;
+  border-radius: 0.5rem;
+  color: #101828;
+  display: inline-flex;
+  font-weight: 700;
+  margin-top: 1.5rem;
+  min-height: 44px;
+  padding: 0.75rem 1rem;
+  text-decoration: none;
+}
+
+.k8-canvas-panel__cta:focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k8-canvas-panel *,
+  .k8-canvas-panel *::before,
+  .k8-canvas-panel *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
