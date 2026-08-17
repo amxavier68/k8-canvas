@@ -37,3 +37,6 @@ Prove a WordPress-native editor-to-page loop with one responsive block and safel
 
 The gate passes only when screenshots and the tested URL demonstrate the complete path.
 
+## Build the installable ZIP
+
+Run `npm run check`, followed by `npm run build:plugin`. The release candidate is written to `dist/k8-canvas-v0.1.0.zip` with `k8-canvas/` as the archive root expected by WordPress.
