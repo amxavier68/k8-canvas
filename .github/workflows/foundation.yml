@@ -1,0 +1,35 @@
+name: Foundation Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/intelligence/requirements-dev.txt
+
+      - name: Install intelligence dependencies
+        run: pip install -r services/intelligence/requirements-dev.txt
+
+      - name: Test intelligence health contract
+        run: python -m unittest discover -s services/intelligence/tests -v
+
+      - name: Validate WordPress plugin syntax
+        run: php -l apps/wordpress-plugin/k8-canvas.php
+
+      - name: Parse Render Blueprint
+        run: python -c "import yaml; yaml.safe_load(open('render.yaml', encoding='utf-8'))"

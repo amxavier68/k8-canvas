@@ -1,0 +1,12 @@
+[project]
+name = "k8-canvas-intelligence"
+version = "0.1.0a1"
+description = "Evidence-led intelligence services for K8 Canvas"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.116.1",
+  "uvicorn[standard]==0.35.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
