@@ -1,5 +1,37 @@
 # K8 Canvas
 
-K8 Canvas is the WordPress-native visual development and scoped custom CSS layer for the Kollabor8 Web Collectives ecosystem.
+K8 Canvas is a governed, visibility-first WordPress building system. It is being
+developed as a standalone Kollabor8 product with a WordPress-native editor and a
+Python intelligence layer.
 
-Development follows evidence-led release gates. Functional changes are made on branches and released only after responsive and real-path validation.
+## Product promise
+
+**Build with freedom. Publish with proof. Own the result.**
+
+## Repository map
+
+- `apps/wordpress-plugin/` — WordPress integration and visual editor boundary
+- `services/intelligence/` — Python 3 analysis and evidence services
+- `docs/product/` — canonical Epic, capabilities and product decisions
+- `docs/agile/` — approved story lifecycle and backlog
+- `render.yaml` — reproducible, free-plan preview infrastructure
+
+## Local intelligence service
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r services/intelligence/requirements-dev.txt
+uvicorn k8_canvas.main:app --app-dir services/intelligence/src --reload
+```
+
+Run the controlled baseline tests with:
+
+```bash
+python3 -m unittest discover -s services/intelligence/tests -v
+php -l apps/wordpress-plugin/k8-canvas.php
+```
+
+Development follows **inspect → gate → execute → test → prove → lock**. Proposed
+work is not implementation authority. Only owner-approved, approachable stories
+move into active development.
