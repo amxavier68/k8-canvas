@@ -4,7 +4,7 @@ defined('ABSPATH') || exit;
 
 final class K8_Canvas_Schema
 {
-    public const VERSION = '2';
+    public const VERSION = '3';
 
     public static function tables(): array
     {
@@ -132,10 +132,15 @@ final class K8_Canvas_Schema
             created_at datetime NOT NULL,
             revoked_at datetime NULL,
             PRIMARY KEY  (id),
-            UNIQUE KEY membership_boundary (membership_id,permission_profile_id,boundary_type,boundary_id),
+            KEY membership_boundary (membership_id,permission_profile_id,boundary_type,boundary_id),
             KEY boundary (boundary_type,boundary_id),
             KEY revoked_at (revoked_at)
         ) $charset;");
+
+        $grant_index = $wpdb->get_row("SHOW INDEX FROM {$tables['permission_grants']} WHERE Key_name='membership_boundary'");
+        if ($grant_index && (int) $grant_index->Non_unique === 0) {
+            $wpdb->query("ALTER TABLE {$tables['permission_grants']} DROP INDEX membership_boundary, ADD INDEX membership_boundary (membership_id,permission_profile_id,boundary_type,boundary_id)");
+        }
 
         dbDelta("CREATE TABLE {$tables['audit_events']} (
             id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -154,9 +159,15 @@ final class K8_Canvas_Schema
             KEY occurred_at (occurred_at)
         ) $charset;");
 
-        update_option('k8_canvas_schema_version', self::VERSION, false);
         self::seed_features();
         self::seed_permission_profiles();
+        $health = self::health();
+        if ($health['ok']) {
+            update_option('k8_canvas_schema_version', self::VERSION, false);
+        } else {
+            delete_option('k8_canvas_schema_version');
+            update_option('k8_canvas_schema_error', implode('; ', $health['errors']), false);
+        }
     }
 
     private static function seed_features(): void
@@ -199,5 +210,32 @@ final class K8_Canvas_Schema
                 wp_json_encode($permissions)
             ));
         }
+    }
+
+    public static function health(): array
+    {
+        global $wpdb;
+        $tables = self::tables();
+        $errors = [];
+        foreach ($tables as $key => $table) {
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $table)) !== $table) {
+                $errors[] = "Missing table: $key";
+            }
+        }
+        if (!$errors) {
+            $index = $wpdb->get_row("SHOW INDEX FROM {$tables['permission_grants']} WHERE Key_name='membership_boundary'");
+            if (!$index || (int) $index->Non_unique !== 1) {
+                $errors[] = 'Permission grant history index is not non-unique';
+            }
+            $profiles = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$tables['permission_profiles']} WHERE profile_key IN ('owner','editor','viewer') AND status='active'");
+            if ($profiles !== 3) {
+                $errors[] = 'Owner, Editor and Viewer profiles were not seeded';
+            }
+            $engine = $wpdb->get_var($wpdb->prepare('SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s', $tables['permission_grants']));
+            if (strtolower((string) $engine) !== 'innodb') {
+                $errors[] = 'Permission grants require the InnoDB transaction engine';
+            }
+        }
+        return ['ok' => !$errors, 'errors' => $errors];
     }
 }
