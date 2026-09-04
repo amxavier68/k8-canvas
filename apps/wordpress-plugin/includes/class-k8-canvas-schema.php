@@ -4,7 +4,7 @@ defined('ABSPATH') || exit;
 
 final class K8_Canvas_Schema
 {
-    public const VERSION = '1';
+    public const VERSION = '2';
 
     public static function tables(): array
     {
@@ -16,6 +16,10 @@ final class K8_Canvas_Schema
             'sites' => $wpdb->prefix . 'k8_canvas_sites',
             'features' => $wpdb->prefix . 'k8_canvas_features',
             'feature_assignments' => $wpdb->prefix . 'k8_canvas_feature_assignments',
+            'memberships' => $wpdb->prefix . 'k8_canvas_memberships',
+            'permission_profiles' => $wpdb->prefix . 'k8_canvas_permission_profiles',
+            'permission_grants' => $wpdb->prefix . 'k8_canvas_permission_grants',
+            'audit_events' => $wpdb->prefix . 'k8_canvas_audit_events',
         ];
     }
 
@@ -96,8 +100,63 @@ final class K8_Canvas_Schema
             KEY boundary (boundary_type,boundary_id)
         ) $charset;");
 
+        dbDelta("CREATE TABLE {$tables['memberships']} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            user_id bigint unsigned NOT NULL,
+            organisation_id bigint unsigned NOT NULL,
+            status varchar(20) NOT NULL DEFAULT 'active',
+            created_at datetime NOT NULL,
+            ended_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY user_organisation (user_id,organisation_id),
+            KEY organisation_id (organisation_id),
+            KEY status (status)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$tables['permission_profiles']} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            profile_key varchar(50) NOT NULL,
+            name varchar(100) NOT NULL,
+            permissions longtext NOT NULL,
+            status varchar(20) NOT NULL DEFAULT 'active',
+            PRIMARY KEY  (id),
+            UNIQUE KEY profile_key (profile_key)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$tables['permission_grants']} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            membership_id bigint unsigned NOT NULL,
+            permission_profile_id bigint unsigned NOT NULL,
+            boundary_type varchar(20) NOT NULL DEFAULT 'organisation',
+            boundary_id bigint unsigned NOT NULL,
+            created_at datetime NOT NULL,
+            revoked_at datetime NULL,
+            PRIMARY KEY  (id),
+            UNIQUE KEY membership_boundary (membership_id,permission_profile_id,boundary_type,boundary_id),
+            KEY boundary (boundary_type,boundary_id),
+            KEY revoked_at (revoked_at)
+        ) $charset;");
+
+        dbDelta("CREATE TABLE {$tables['audit_events']} (
+            id bigint unsigned NOT NULL AUTO_INCREMENT,
+            request_id varchar(64) NOT NULL,
+            actor_user_id bigint unsigned NOT NULL,
+            action_key varchar(100) NOT NULL,
+            resource_type varchar(50) NOT NULL,
+            resource_id bigint unsigned NOT NULL,
+            organisation_id bigint unsigned NULL,
+            metadata longtext NULL,
+            occurred_at datetime NOT NULL,
+            PRIMARY KEY  (id),
+            KEY actor_user_id (actor_user_id),
+            KEY resource (resource_type,resource_id),
+            KEY organisation_id (organisation_id),
+            KEY occurred_at (occurred_at)
+        ) $charset;");
+
         update_option('k8_canvas_schema_version', self::VERSION, false);
         self::seed_features();
+        self::seed_permission_profiles();
     }
 
     private static function seed_features(): void
@@ -119,6 +178,25 @@ final class K8_Canvas_Schema
                  ON DUPLICATE KEY UPDATE name = VALUES(name)",
                 $key,
                 $name
+            ));
+        }
+    }
+
+    private static function seed_permission_profiles(): void
+    {
+        global $wpdb;
+        $table = self::tables()['permission_profiles'];
+        $profiles = [
+            'owner' => ['Owner', ['organisation.*', 'site.*', 'feature.*', 'membership.*', 'audit.read']],
+            'editor' => ['Editor', ['organisation.read', 'site.read', 'site.update', 'feature.read', 'feature.update']],
+            'viewer' => ['Viewer', ['organisation.read', 'site.read', 'feature.read']],
+        ];
+        foreach ($profiles as $key => [$name, $permissions]) {
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO $table (profile_key,name,permissions,status) VALUES (%s,%s,%s,'active') ON DUPLICATE KEY UPDATE name=VALUES(name),permissions=VALUES(permissions)",
+                $key,
+                $name,
+                wp_json_encode($permissions)
             ));
         }
     }
