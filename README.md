@@ -10,7 +10,7 @@ Python intelligence layer.
 
 ## Repository map
 
-- `apps/wordpress-plugin/` — WordPress integration and visual editor boundary
+- `apps/wordpress-plugin/` — WordPress dashboard, REST interface and visual editor boundary
 - `services/intelligence/` — Python 3 analysis and evidence services
 - `docs/product/` — canonical Epic, capabilities and product decisions
 - `docs/agile/` — approved story lifecycle and backlog
@@ -35,3 +35,11 @@ php -l apps/wordpress-plugin/k8-canvas.php
 Development follows **inspect → gate → execute → test → prove → lock**. Proposed
 work is not implementation authority. Only owner-approved, approachable stories
 move into active development.
+
+## Current urgency-mode API
+
+Activating the plugin creates the first normalised multi-agency schema and exposes
+administrator-only endpoints under `/wp-json/k8-canvas/v1` for organisations,
+agency-client relationships, sites, features and feature assignments. This is a
+bootstrap boundary: customer access stays closed until membership, PBAC and tenant
+isolation tests are complete.
