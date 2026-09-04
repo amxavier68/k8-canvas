@@ -38,6 +38,15 @@ final class K8_Canvas_REST
             'callback' => [self::class, 'set_feature_assignment'],
             'permission_callback' => [self::class, 'can_manage'],
         ]);
+        register_rest_route(self::NAMESPACE, '/memberships', [
+            ['methods' => WP_REST_Server::READABLE, 'callback' => [self::class, 'list_memberships'], 'permission_callback' => [self::class, 'can_manage']],
+            ['methods' => WP_REST_Server::CREATABLE, 'callback' => [self::class, 'create_membership'], 'permission_callback' => [self::class, 'can_manage']],
+        ]);
+        register_rest_route(self::NAMESPACE, '/audit-events', [
+            'methods' => WP_REST_Server::READABLE,
+            'callback' => [self::class, 'list_audit_events'],
+            'permission_callback' => [self::class, 'can_manage'],
+        ]);
     }
 
     public static function can_manage(): bool
@@ -66,6 +75,9 @@ final class K8_Canvas_REST
             'name' => $name, 'slug' => sanitize_title($request->get_param('slug') ?: $name),
             'organisation_type' => $type, 'status' => 'active', 'created_at' => $now, 'updated_at' => $now,
         ], ['%s', '%s', '%s', '%s', '%s', '%s']);
+        if ($ok !== false) {
+            K8_Canvas_Access::audit('organisation.create', 'organisation', (int) $wpdb->insert_id, (int) $wpdb->insert_id);
+        }
         return self::write_response($ok, $wpdb->insert_id, 'organisation');
     }
 
@@ -111,6 +123,9 @@ final class K8_Canvas_REST
             'managing_organisation_id' => $manager, 'managed_organisation_id' => $managed,
             'relationship_type' => 'agency_client', 'status' => 'active', 'starts_at' => current_time('mysql', true),
         ], ['%d', '%d', '%s', '%s', '%s']);
+        if ($ok !== false) {
+            K8_Canvas_Access::audit('relationship.create', 'relationship', (int) $wpdb->insert_id, $manager, ['managed_organisation_id' => $managed]);
+        }
         return self::write_response($ok, $wpdb->insert_id, 'relationship');
     }
 
@@ -139,6 +154,9 @@ final class K8_Canvas_REST
             'owning_organisation_id' => $owner, 'name' => $name, 'canonical_url' => untrailingslashit($url),
             'status' => 'active', 'created_at' => $now, 'updated_at' => $now,
         ], ['%d', '%s', '%s', '%s', '%s', '%s']);
+        if ($ok !== false) {
+            K8_Canvas_Access::audit('site.create', 'site', (int) $wpdb->insert_id, $owner);
+        }
         return self::write_response($ok, $wpdb->insert_id, 'site');
     }
 
@@ -199,7 +217,57 @@ final class K8_Canvas_REST
             'enabled' => rest_sanitize_boolean($request->get_param('enabled')) ? 1 : 0,
             'configuration' => $configuration, 'updated_at' => current_time('mysql', true),
         ], ['%d', '%s', '%d', '%d', '%s', '%s']);
+        if ($ok !== false) {
+            K8_Canvas_Access::audit('feature.assign', 'feature', $feature, $organisation, ['boundary_type' => $boundary_type, 'boundary_id' => $boundary_id, 'enabled' => rest_sanitize_boolean($request->get_param('enabled'))]);
+        }
         return self::write_response($ok, $wpdb->insert_id, 'feature assignment');
+    }
+
+    public static function list_memberships(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $t = K8_Canvas_Schema::tables();
+        $organisation = absint($request->get_param('organisation_id'));
+        $where = $organisation ? $wpdb->prepare(' AND m.organisation_id=%d', $organisation) : '';
+        $rows = $wpdb->get_results("SELECT m.id,m.user_id,u.user_login,u.user_email,m.organisation_id,o.name organisation_name,m.status,p.profile_key,p.name profile_name
+            FROM {$t['memberships']} m JOIN {$wpdb->users} u ON u.ID=m.user_id JOIN {$t['organisations']} o ON o.id=m.organisation_id
+            LEFT JOIN {$t['permission_grants']} g ON g.membership_id=m.id AND g.revoked_at IS NULL
+            LEFT JOIN {$t['permission_profiles']} p ON p.id=g.permission_profile_id
+            WHERE m.status='active'$where ORDER BY o.name,u.user_login", ARRAY_A);
+        return self::response($rows);
+    }
+
+    public static function create_membership(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $identity = sanitize_text_field((string) $request->get_param('user'));
+        $organisation = absint($request->get_param('organisation_id'));
+        $profile_key = sanitize_key((string) $request->get_param('profile_key'));
+        $user = is_email($identity) ? get_user_by('email', $identity) : get_user_by('login', $identity);
+        $profile = $wpdb->get_row($wpdb->prepare("SELECT id FROM " . K8_Canvas_Schema::tables()['permission_profiles'] . " WHERE profile_key=%s AND status='active'", $profile_key));
+        if (!$user || !$organisation || !$profile || !self::organisations_exist([$organisation])) {
+            return new WP_Error('k8_invalid_membership', 'An existing WordPress user, organisation and permission profile are required.', ['status' => 400]);
+        }
+        $membership_table = K8_Canvas_Schema::tables()['memberships'];
+        $wpdb->query($wpdb->prepare("INSERT INTO $membership_table (user_id,organisation_id,status,created_at) VALUES (%d,%d,'active',%s) ON DUPLICATE KEY UPDATE status='active',ended_at=NULL", $user->ID, $organisation, current_time('mysql', true)));
+        $membership_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM $membership_table WHERE user_id=%d AND organisation_id=%d", $user->ID, $organisation));
+        $ok = $wpdb->replace(K8_Canvas_Schema::tables()['permission_grants'], [
+            'membership_id' => $membership_id, 'permission_profile_id' => (int) $profile->id,
+            'boundary_type' => 'organisation', 'boundary_id' => $organisation, 'created_at' => current_time('mysql', true),
+        ], ['%d', '%d', '%s', '%d', '%s']);
+        if ($ok !== false) {
+            K8_Canvas_Access::audit('membership.grant', 'membership', $membership_id, $organisation, ['profile_key' => $profile_key]);
+        }
+        return self::write_response($ok, $membership_id, 'membership');
+    }
+
+    public static function list_audit_events(WP_REST_Request $request): WP_REST_Response
+    {
+        global $wpdb;
+        $limit = min(100, max(1, absint($request->get_param('limit') ?: 50)));
+        $t = K8_Canvas_Schema::tables();
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT a.*,u.user_login FROM {$t['audit_events']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.actor_user_id ORDER BY a.id DESC LIMIT %d", $limit), ARRAY_A);
+        return self::response($rows);
     }
 
     private static function organisations_exist(array $ids): bool
