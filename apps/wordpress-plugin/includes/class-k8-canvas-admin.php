@@ -6,25 +6,43 @@ final class K8_Canvas_Admin
 {
     public static function register_menu(): void
     {
-        add_menu_page('K8 Canvas', 'K8 Canvas', 'manage_options', 'k8-canvas', [self::class, 'render'], 'dashicons-layout', 58);
+        if (!K8_Canvas_Access::has_active_grant()) return;
+        add_menu_page('K8 Canvas', 'K8 Canvas', 'read', 'k8-canvas', [self::class, 'render'], 'dashicons-layout', 58);
     }
 
     public static function render(): void
     {
-        if (!current_user_can('manage_options')) {
+        if (!is_user_logged_in()) {
             wp_die(esc_html__('You do not have permission to manage K8 Canvas.', 'k8-canvas'));
         }
         global $wpdb;
         $t = K8_Canvas_Schema::tables();
         $schema_health = K8_Canvas_Schema::health();
-        $orgs = $wpdb->get_results("SELECT * FROM {$t['organisations']} WHERE status='active' ORDER BY organisation_type,name", ARRAY_A);
-        $sites = $wpdb->get_results("SELECT s.*,o.name owner_name FROM {$t['sites']} s JOIN {$t['organisations']} o ON o.id=s.owning_organisation_id WHERE s.status='active' ORDER BY o.name,s.name", ARRAY_A);
-        $rels = $wpdb->get_results("SELECT r.*,a.name manager_name,c.name managed_name FROM {$t['relationships']} r JOIN {$t['organisations']} a ON a.id=r.managing_organisation_id JOIN {$t['organisations']} c ON c.id=r.managed_organisation_id WHERE r.status='active' ORDER BY a.name,c.name", ARRAY_A);
+        $org_ids = K8_Canvas_Access::organisation_ids('organisation.read');
+        if (!$org_ids) {
+            wp_die(esc_html__('Your account has no active K8 Canvas organisation access.', 'k8-canvas'));
+        }
+        $org_placeholders = implode(',', array_fill(0, count($org_ids), '%d'));
+        $orgs = $wpdb->get_results($wpdb->prepare("SELECT * FROM {$t['organisations']} WHERE status='active' AND id IN ($org_placeholders) ORDER BY organisation_type,name", ...$org_ids), ARRAY_A);
+        $sites = $wpdb->get_results($wpdb->prepare("SELECT s.*,o.name owner_name FROM {$t['sites']} s JOIN {$t['organisations']} o ON o.id=s.owning_organisation_id WHERE s.status='active' AND s.owning_organisation_id IN ($org_placeholders) ORDER BY o.name,s.name", ...$org_ids), ARRAY_A);
+        $rels = $wpdb->get_results($wpdb->prepare("SELECT r.*,a.name manager_name,c.name managed_name FROM {$t['relationships']} r JOIN {$t['organisations']} a ON a.id=r.managing_organisation_id JOIN {$t['organisations']} c ON c.id=r.managed_organisation_id WHERE r.status='active' AND r.managing_organisation_id IN ($org_placeholders) AND r.managed_organisation_id IN ($org_placeholders) ORDER BY a.name,c.name", ...array_merge($org_ids, $org_ids)), ARRAY_A);
         $features = $wpdb->get_results("SELECT * FROM {$t['features']} WHERE lifecycle_status='active' ORDER BY name", ARRAY_A);
         $profiles = $schema_health['ok'] ? $wpdb->get_results("SELECT * FROM {$t['permission_profiles']} WHERE status='active' ORDER BY name", ARRAY_A) : [];
-        $users = $wpdb->get_results("SELECT ID,user_login,user_email,display_name FROM {$wpdb->users} ORDER BY display_name,user_login", ARRAY_A);
-        $memberships = $schema_health['ok'] ? $wpdb->get_results("SELECT m.id,u.user_login,o.name organisation_name,p.profile_key,p.name profile_name FROM {$t['memberships']} m JOIN {$wpdb->users} u ON u.ID=m.user_id JOIN {$t['organisations']} o ON o.id=m.organisation_id LEFT JOIN {$t['permission_grants']} g ON g.membership_id=m.id AND g.revoked_at IS NULL LEFT JOIN {$t['permission_profiles']} p ON p.id=g.permission_profile_id WHERE m.status='active' ORDER BY o.name,u.user_login", ARRAY_A) : [];
-        $audit = $schema_health['ok'] ? $wpdb->get_results("SELECT a.*,u.user_login FROM {$t['audit_events']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.actor_user_id ORDER BY a.id DESC LIMIT 20", ARRAY_A) : [];
+        $membership_org_ids = K8_Canvas_Access::organisation_ids('membership.read');
+        $audit_org_ids = K8_Canvas_Access::organisation_ids('audit.read');
+        $membership_update_ids = K8_Canvas_Access::organisation_ids('membership.update');
+        if (K8_Canvas_Access::is_platform_administrator()) {
+            $users = $wpdb->get_results("SELECT ID,user_login,user_email,display_name FROM {$wpdb->users} ORDER BY display_name,user_login", ARRAY_A);
+        } elseif ($membership_update_ids) {
+            $update_placeholders = implode(',', array_fill(0, count($membership_update_ids), '%d'));
+            $users = $wpdb->get_results($wpdb->prepare("SELECT DISTINCT u.ID,u.user_login,u.user_email,u.display_name FROM {$wpdb->users} u JOIN {$t['memberships']} m ON m.user_id=u.ID WHERE m.status='active' AND m.organisation_id IN ($update_placeholders) ORDER BY u.display_name,u.user_login", ...$membership_update_ids), ARRAY_A);
+        } else {
+            $users = [];
+        }
+        $membership_placeholders = implode(',', array_fill(0, count($membership_org_ids), '%d'));
+        $memberships = $schema_health['ok'] && $membership_org_ids ? $wpdb->get_results($wpdb->prepare("SELECT m.id,u.user_login,o.name organisation_name,p.profile_key,p.name profile_name FROM {$t['memberships']} m JOIN {$wpdb->users} u ON u.ID=m.user_id JOIN {$t['organisations']} o ON o.id=m.organisation_id LEFT JOIN {$t['permission_grants']} g ON g.membership_id=m.id AND g.revoked_at IS NULL LEFT JOIN {$t['permission_profiles']} p ON p.id=g.permission_profile_id WHERE m.status='active' AND m.organisation_id IN ($membership_placeholders) ORDER BY o.name,u.user_login", ...$membership_org_ids), ARRAY_A) : [];
+        $audit_placeholders = implode(',', array_fill(0, count($audit_org_ids), '%d'));
+        $audit = $schema_health['ok'] && $audit_org_ids ? $wpdb->get_results($wpdb->prepare("SELECT a.*,u.user_login FROM {$t['audit_events']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.actor_user_id WHERE a.organisation_id IN ($audit_placeholders) ORDER BY a.id DESC LIMIT 20", ...$audit_org_ids), ARRAY_A) : [];
         $boot = ['api' => esc_url_raw(rest_url('k8-canvas/v1')), 'nonce' => wp_create_nonce('wp_rest'), 'sites' => $sites];
         ?>
         <div class="wrap k8" id="k8-app">
