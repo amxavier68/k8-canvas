@@ -42,6 +42,10 @@ final class K8_Canvas_REST
             ['methods' => WP_REST_Server::READABLE, 'callback' => [self::class, 'list_memberships'], 'permission_callback' => [self::class, 'can_manage']],
             ['methods' => WP_REST_Server::CREATABLE, 'callback' => [self::class, 'create_membership'], 'permission_callback' => [self::class, 'can_manage']],
         ]);
+        register_rest_route(self::NAMESPACE, '/memberships/(?P<id>\d+)', [
+            ['methods' => WP_REST_Server::EDITABLE, 'callback' => [self::class, 'update_membership'], 'permission_callback' => [self::class, 'can_manage']],
+            ['methods' => WP_REST_Server::DELETABLE, 'callback' => [self::class, 'revoke_membership'], 'permission_callback' => [self::class, 'can_manage']],
+        ]);
         register_rest_route(self::NAMESPACE, '/audit-events', [
             'methods' => WP_REST_Server::READABLE,
             'callback' => [self::class, 'list_audit_events'],
@@ -93,6 +97,9 @@ final class K8_Canvas_REST
             }
         }
         $ok = $wpdb->update(K8_Canvas_Schema::tables()['organisations'], $data, ['id' => absint($request['id']), 'status' => 'active'], $formats, ['%d', '%s']);
+        if ($ok > 0) {
+            K8_Canvas_Access::audit('organisation.update', 'organisation', absint($request['id']), absint($request['id']));
+        }
         return self::update_response($ok, 'organisation');
     }
 
@@ -101,6 +108,9 @@ final class K8_Canvas_REST
         global $wpdb;
         $now = current_time('mysql', true);
         $ok = $wpdb->update(K8_Canvas_Schema::tables()['organisations'], ['status' => 'archived', 'archived_at' => $now, 'updated_at' => $now], ['id' => absint($request['id']), 'status' => 'active']);
+        if ($ok > 0) {
+            K8_Canvas_Access::audit('organisation.archive', 'organisation', absint($request['id']), absint($request['id']));
+        }
         return self::update_response($ok, 'organisation');
     }
 
@@ -172,6 +182,10 @@ final class K8_Canvas_REST
             }
         }
         $ok = $wpdb->update(K8_Canvas_Schema::tables()['sites'], $data, ['id' => absint($request['id']), 'status' => 'active']);
+        if ($ok > 0) {
+            $organisation = (int) $wpdb->get_var($wpdb->prepare("SELECT owning_organisation_id FROM " . K8_Canvas_Schema::tables()['sites'] . " WHERE id=%d", absint($request['id'])));
+            K8_Canvas_Access::audit('site.update', 'site', absint($request['id']), $organisation);
+        }
         return self::update_response($ok, 'site');
     }
 
@@ -179,7 +193,12 @@ final class K8_Canvas_REST
     {
         global $wpdb;
         $now = current_time('mysql', true);
-        $ok = $wpdb->update(K8_Canvas_Schema::tables()['sites'], ['status' => 'archived', 'archived_at' => $now, 'updated_at' => $now], ['id' => absint($request['id']), 'status' => 'active']);
+        $site_table = K8_Canvas_Schema::tables()['sites'];
+        $organisation = (int) $wpdb->get_var($wpdb->prepare("SELECT owning_organisation_id FROM $site_table WHERE id=%d", absint($request['id'])));
+        $ok = $wpdb->update($site_table, ['status' => 'archived', 'archived_at' => $now, 'updated_at' => $now], ['id' => absint($request['id']), 'status' => 'active']);
+        if ($ok > 0) {
+            K8_Canvas_Access::audit('site.archive', 'site', absint($request['id']), $organisation);
+        }
         return self::update_response($ok, 'site');
     }
 
@@ -248,17 +267,71 @@ final class K8_Canvas_REST
         if (!$user || !$organisation || !$profile || !self::organisations_exist([$organisation])) {
             return new WP_Error('k8_invalid_membership', 'An existing WordPress user, organisation and permission profile are required.', ['status' => 400]);
         }
-        $membership_table = K8_Canvas_Schema::tables()['memberships'];
-        $wpdb->query($wpdb->prepare("INSERT INTO $membership_table (user_id,organisation_id,status,created_at) VALUES (%d,%d,'active',%s) ON DUPLICATE KEY UPDATE status='active',ended_at=NULL", $user->ID, $organisation, current_time('mysql', true)));
+        $tables = K8_Canvas_Schema::tables();
+        $membership_table = $tables['memberships'];
+        $started = $wpdb->query('START TRANSACTION');
+        $membership_write = $wpdb->query($wpdb->prepare("INSERT INTO $membership_table (user_id,organisation_id,status,created_at) VALUES (%d,%d,'active',%s) ON DUPLICATE KEY UPDATE status='active',ended_at=NULL", $user->ID, $organisation, current_time('mysql', true)));
         $membership_id = (int) $wpdb->get_var($wpdb->prepare("SELECT id FROM $membership_table WHERE user_id=%d AND organisation_id=%d", $user->ID, $organisation));
-        $ok = $wpdb->replace(K8_Canvas_Schema::tables()['permission_grants'], [
+        $grant_revoke = $wpdb->update($tables['permission_grants'], ['revoked_at' => current_time('mysql', true)], ['membership_id' => $membership_id, 'boundary_type' => 'organisation', 'boundary_id' => $organisation, 'revoked_at' => null]);
+        $ok = $wpdb->insert($tables['permission_grants'], [
             'membership_id' => $membership_id, 'permission_profile_id' => (int) $profile->id,
             'boundary_type' => 'organisation', 'boundary_id' => $organisation, 'created_at' => current_time('mysql', true),
         ], ['%d', '%d', '%s', '%d', '%s']);
-        if ($ok !== false) {
-            K8_Canvas_Access::audit('membership.grant', 'membership', $membership_id, $organisation, ['profile_key' => $profile_key]);
+        if ($started === false || $membership_write === false || !$membership_id || $grant_revoke === false || $ok === false || !K8_Canvas_Access::audit('membership.grant', 'membership', $membership_id, $organisation, ['profile_key' => $profile_key])) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('k8_membership_failed', 'The membership could not be saved safely. No access was granted.', ['status' => 500]);
+        }
+        if ($wpdb->query('COMMIT') === false) {
+            return new WP_Error('k8_membership_commit_failed', 'The database could not confirm the membership change.', ['status' => 500]);
         }
         return self::write_response($ok, $membership_id, 'membership');
+    }
+
+    public static function update_membership(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $tables = K8_Canvas_Schema::tables();
+        $membership_id = absint($request['id']);
+        $profile_key = sanitize_key((string) $request->get_param('profile_key'));
+        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active'", $membership_id));
+        $profile = $wpdb->get_row($wpdb->prepare("SELECT id FROM {$tables['permission_profiles']} WHERE profile_key=%s AND status='active'", $profile_key));
+        if (!$membership || !$profile) {
+            return new WP_Error('k8_membership_not_found', 'The active membership or permission profile was not found.', ['status' => 404]);
+        }
+        $started = $wpdb->query('START TRANSACTION');
+        $grant_revoke = $wpdb->query($wpdb->prepare("UPDATE {$tables['permission_grants']} SET revoked_at=%s WHERE membership_id=%d AND revoked_at IS NULL", current_time('mysql', true), $membership_id));
+        $ok = $wpdb->insert($tables['permission_grants'], ['membership_id' => $membership_id, 'permission_profile_id' => (int) $profile->id, 'boundary_type' => 'organisation', 'boundary_id' => (int) $membership->organisation_id, 'created_at' => current_time('mysql', true)], ['%d', '%d', '%s', '%d', '%s']);
+        if ($started === false || $grant_revoke === false || $ok === false || !K8_Canvas_Access::audit('membership.profile_change', 'membership', $membership_id, (int) $membership->organisation_id, ['profile_key' => $profile_key])) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('k8_membership_update_failed', 'The access profile could not be changed safely.', ['status' => 500]);
+        }
+        if ($wpdb->query('COMMIT') === false) {
+            return new WP_Error('k8_membership_commit_failed', 'The database could not confirm the access-profile change.', ['status' => 500]);
+        }
+        return new WP_REST_Response(['updated' => true], 200);
+    }
+
+    public static function revoke_membership(WP_REST_Request $request)
+    {
+        global $wpdb;
+        $tables = K8_Canvas_Schema::tables();
+        $membership_id = absint($request['id']);
+        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active'", $membership_id));
+        if (!$membership) {
+            return new WP_Error('k8_membership_not_found', 'The active membership was not found.', ['status' => 404]);
+        }
+        $now = current_time('mysql', true);
+        $started = $wpdb->query('START TRANSACTION');
+        $grant_write = $wpdb->query($wpdb->prepare("UPDATE {$tables['permission_grants']} SET revoked_at=%s WHERE membership_id=%d AND revoked_at IS NULL", $now, $membership_id));
+        $membership_write = $wpdb->update($tables['memberships'], ['status' => 'revoked', 'ended_at' => $now], ['id' => $membership_id, 'status' => 'active']);
+        if ($started === false || $grant_write === false || $membership_write !== 1 || !K8_Canvas_Access::audit('membership.revoke', 'membership', $membership_id, (int) $membership->organisation_id)) {
+            $wpdb->query('ROLLBACK');
+            return new WP_Error('k8_membership_revoke_failed', 'The membership could not be revoked safely.', ['status' => 500]);
+        }
+        if ($wpdb->query('COMMIT') === false) {
+            return new WP_Error('k8_membership_commit_failed', 'The database could not confirm membership revocation.', ['status' => 500]);
+        }
+        return new WP_REST_Response(['revoked' => true], 200);
     }
 
     public static function list_audit_events(WP_REST_Request $request): WP_REST_Response
