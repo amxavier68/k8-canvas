@@ -40,6 +40,11 @@ Canvas can serve Kollabor8 and agency-level customers without entangling ownersh
 - visible agency/client/site context switching;
 - administrator forms for organisations, sites and agency-client relationships;
 - organisation- and site-scoped feature toggles using the REST interface.
+- WordPress-user memberships with owner, editor and viewer permission profiles;
+- organisation-bound permission grants and a server-side permission resolver;
+- append-only audit events for organisation, relationship, site, feature and
+  membership changes;
+- visible Access & Audit dashboard controls.
 
 **Current gate:**
 
