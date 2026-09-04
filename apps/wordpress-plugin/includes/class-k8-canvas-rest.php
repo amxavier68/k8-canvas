@@ -84,10 +84,11 @@ final class K8_Canvas_REST
             'name' => $name, 'slug' => sanitize_title($request->get_param('slug') ?: $name),
             'organisation_type' => $type, 'status' => 'active', 'created_at' => $now, 'updated_at' => $now,
         ], ['%s', '%s', '%s', '%s', '%s', '%s']);
+        $organisation_id = $ok === false ? 0 : (int) $wpdb->insert_id;
         if ($ok !== false) {
-            K8_Canvas_Access::audit('organisation.create', 'organisation', (int) $wpdb->insert_id, (int) $wpdb->insert_id);
+            K8_Canvas_Access::audit('organisation.create', 'organisation', $organisation_id, $organisation_id);
         }
-        return self::write_response($ok, $wpdb->insert_id, 'organisation');
+        return self::write_response($ok, $organisation_id, 'organisation');
     }
 
     public static function update_organisation(WP_REST_Request $request)
@@ -144,10 +145,11 @@ final class K8_Canvas_REST
             'managing_organisation_id' => $manager, 'managed_organisation_id' => $managed,
             'relationship_type' => 'agency_client', 'status' => 'active', 'starts_at' => current_time('mysql', true),
         ], ['%d', '%d', '%s', '%s', '%s']);
+        $relationship_id = $ok === false ? 0 : (int) $wpdb->insert_id;
         if ($ok !== false) {
-            K8_Canvas_Access::audit('relationship.create', 'relationship', (int) $wpdb->insert_id, $manager, ['managed_organisation_id' => $managed]);
+            K8_Canvas_Access::audit('relationship.create', 'relationship', $relationship_id, $manager, ['managed_organisation_id' => $managed]);
         }
-        return self::write_response($ok, $wpdb->insert_id, 'relationship');
+        return self::write_response($ok, $relationship_id, 'relationship');
     }
 
     public static function list_sites(WP_REST_Request $request): WP_REST_Response
@@ -178,10 +180,11 @@ final class K8_Canvas_REST
             'owning_organisation_id' => $owner, 'name' => $name, 'canonical_url' => untrailingslashit($url),
             'status' => 'active', 'created_at' => $now, 'updated_at' => $now,
         ], ['%d', '%s', '%s', '%s', '%s', '%s']);
+        $site_id = $ok === false ? 0 : (int) $wpdb->insert_id;
         if ($ok !== false) {
-            K8_Canvas_Access::audit('site.create', 'site', (int) $wpdb->insert_id, $owner);
+            K8_Canvas_Access::audit('site.create', 'site', $site_id, $owner);
         }
-        return self::write_response($ok, $wpdb->insert_id, 'site');
+        return self::write_response($ok, $site_id, 'site');
     }
 
     public static function update_site(WP_REST_Request $request)
@@ -259,11 +262,12 @@ final class K8_Canvas_REST
             'enabled' => rest_sanitize_boolean($request->get_param('enabled')) ? 1 : 0,
             'configuration' => $configuration, 'updated_at' => current_time('mysql', true),
         ], ['%d', '%s', '%d', '%d', '%s', '%s']);
+        $assignment_id = $ok === false ? 0 : (int) $wpdb->insert_id;
         if ($ok !== false) {
             $audit_organisation = $organisation ?: (int) $wpdb->get_var($wpdb->prepare("SELECT owning_organisation_id FROM {$tables['sites']} WHERE id=%d", $site));
             K8_Canvas_Access::audit('feature.assign', 'feature', $feature, $audit_organisation, ['boundary_type' => $boundary_type, 'boundary_id' => $boundary_id, 'enabled' => rest_sanitize_boolean($request->get_param('enabled'))]);
         }
-        return self::write_response($ok, $wpdb->insert_id, 'feature assignment');
+        return self::write_response($ok, $assignment_id, 'feature assignment');
     }
 
     public static function list_memberships(WP_REST_Request $request): WP_REST_Response
