@@ -37,6 +37,9 @@ Canvas can serve Kollabor8 and agency-level customers without entangling ownersh
   archival, relationship creation, site registration and feature control;
 - an administrator-only multi-level dashboard shell;
 - explicit organisation and site boundaries for feature assignments.
+- visible agency/client/site context switching;
+- administrator forms for organisations, sites and agency-client relationships;
+- organisation- and site-scoped feature toggles using the REST interface.
 
 **Current gate:**
 
