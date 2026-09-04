@@ -48,6 +48,11 @@ Canvas can serve Kollabor8 and agency-level customers without entangling ownersh
 - selectable WordPress users with explained access profiles;
 - atomic membership profile replacement and membership revocation;
 - schema diagnostics and human-readable audit events.
+- deny-by-default permission matching for organisation and site resources;
+- membership-scoped organisation, relationship, site, feature, membership and
+  audit queries;
+- server-side ownership resolution for site operations;
+- immediate enforcement of membership revocation at the REST boundary.
 
 **Current gate:**
 
