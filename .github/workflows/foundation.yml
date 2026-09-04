@@ -33,3 +33,50 @@ jobs:
 
       - name: Parse Render Blueprint
         run: python -c "import yaml; yaml.safe_load(open('render.yaml', encoding='utf-8'))"
+
+  wordpress-pbac:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install WordPress test environment
+        run: npm ci
+
+      - name: Start disposable WordPress and MySQL
+        run: npm run wp:start
+
+      - name: Activate K8 Canvas
+        run: npx wp-env run cli wp plugin activate wordpress-plugin
+
+      - name: Prove tenant-scoped PBAC contract
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:pbac 2>&1 | tee pbac-contract.log
+
+      - name: Preserve PBAC contract evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pbac-contract-evidence
+          path: pbac-contract.log
+          if-no-files-found: error
+
+      - name: Capture WordPress diagnostics on failure
+        if: failure()
+        run: |
+          npx wp-env run cli wp core version || true
+          npx wp-env run cli wp plugin list || true
+          npx wp-env logs || true
+
+      - name: Stop disposable environment
+        if: always()
+        run: npm run wp:stop

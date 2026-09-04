@@ -26,8 +26,10 @@ It brings together four concerns that competing products commonly separate:
   within the active approved story.
 - GPT specialisation does not confer ownership, publishing authority or commercial
   authority.
-- PBAC, customer accounts and delegated publishing are deferred until the approved
-  commercial-access gate.
+- Multi-agency accounts, customer ownership and feature controls entered urgency
+  mode by owner approval on 2026-09-04.
+- Administrator-only bootstrap access is temporary; delegated access may not ship
+  before membership and PBAC isolation tests pass.
 
 ## Product guardrails
 
@@ -45,3 +47,10 @@ K8 Canvas reaches its first product proof when an owner can construct a real
 WordPress page from governed components, receive explainable Python analysis,
 correct material defects, publish intentionally and retain usable content if the
 Canvas layer is removed.
+
+## Urgency-mode product proof
+
+The commercial foundation is proven when one platform can represent multiple
+agencies, each with independently owned client organisations and sites, while
+feature access is controlled at organisation or site level and cross-agency access
+is prevented by tested server-side permissions.
