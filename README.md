@@ -47,3 +47,7 @@ isolation tests are complete.
 The WordPress **K8 Canvas** menu now provides the first visible dashboard. An
 administrator can create organisations, connect agency-client relationships,
 register sites, switch context and control features without leaving WordPress.
+
+Version `0.3.0-alpha.1` adds organisation memberships, seeded owner/editor/viewer
+permission profiles, boundary-scoped grants and an append-only audit view. These
+controls remain administrator-operated while cross-tenant isolation is tested.
