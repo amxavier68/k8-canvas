@@ -51,3 +51,7 @@ register sites, switch context and control features without leaving WordPress.
 Version `0.3.1-alpha.2` adds organisation memberships, seeded owner/editor/viewer
 permission profiles, boundary-scoped grants and an append-only audit view. These
 controls remain administrator-operated while cross-tenant isolation is tested.
+
+Version `0.4.0-alpha.1` connects those permission profiles to the REST boundary.
+Non-administrator API requests are denied by default and scoped to the caller's
+active organisation membership; WordPress administrators retain recovery access.
