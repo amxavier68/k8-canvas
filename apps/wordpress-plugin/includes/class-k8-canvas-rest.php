@@ -152,7 +152,7 @@ final class K8_Canvas_REST
         return self::write_response($ok, $relationship_id, 'relationship');
     }
 
-    public static function list_sites(WP_REST_Request $request): WP_REST_Response
+    public static function list_sites(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         global $wpdb;
         $table = K8_Canvas_Schema::tables()['sites'];
@@ -221,7 +221,7 @@ final class K8_Canvas_REST
         return self::update_response($ok, 'site');
     }
 
-    public static function list_features(WP_REST_Request $request): WP_REST_Response
+    public static function list_features(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         global $wpdb;
         $tables = K8_Canvas_Schema::tables();
@@ -270,7 +270,7 @@ final class K8_Canvas_REST
         return self::write_response($ok, $assignment_id, 'feature assignment');
     }
 
-    public static function list_memberships(WP_REST_Request $request): WP_REST_Response
+    public static function list_memberships(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         global $wpdb;
         $t = K8_Canvas_Schema::tables();
