@@ -44,10 +44,10 @@ final class K8_Canvas_Access
         return false;
     }
 
-    public static function audit(string $action, string $resource_type, int $resource_id, ?int $organisation_id = null, array $metadata = []): void
+    public static function audit(string $action, string $resource_type, int $resource_id, ?int $organisation_id = null, array $metadata = []): bool
     {
         global $wpdb;
-        $wpdb->insert(K8_Canvas_Schema::tables()['audit_events'], [
+        return $wpdb->insert(K8_Canvas_Schema::tables()['audit_events'], [
             'request_id' => wp_generate_uuid4(),
             'actor_user_id' => get_current_user_id(),
             'action_key' => sanitize_text_field($action),
@@ -56,6 +56,6 @@ final class K8_Canvas_Access
             'organisation_id' => $organisation_id,
             'metadata' => $metadata ? wp_json_encode($metadata) : null,
             'occurred_at' => current_time('mysql', true),
-        ], ['%s', '%d', '%s', '%s', '%d', '%d', '%s', '%s']);
+        ], ['%s', '%d', '%s', '%s', '%d', '%d', '%s', '%s']) !== false;
     }
 }
