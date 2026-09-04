@@ -45,6 +45,9 @@ Canvas can serve Kollabor8 and agency-level customers without entangling ownersh
 - append-only audit events for organisation, relationship, site, feature and
   membership changes;
 - visible Access & Audit dashboard controls.
+- selectable WordPress users with explained access profiles;
+- atomic membership profile replacement and membership revocation;
+- schema diagnostics and human-readable audit events.
 
 **Current gate:**
 
