@@ -55,7 +55,8 @@ final class K8_Canvas_REST
 
     public static function can_manage(): bool
     {
-        return current_user_can('manage_options');
+        if (!is_user_logged_in()) return false;
+        return K8_Canvas_Access::has_active_grant();
     }
 
     public static function list_organisations(WP_REST_Request $request): WP_REST_Response
@@ -63,12 +64,16 @@ final class K8_Canvas_REST
         global $wpdb;
         $table = K8_Canvas_Schema::tables()['organisations'];
         $status = sanitize_key($request->get_param('status') ?: 'active');
-        return self::response($wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE status = %s ORDER BY name", $status), ARRAY_A));
+        $ids = K8_Canvas_Access::organisation_ids('organisation.read');
+        if (!$ids) return self::response([]);
+        $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+        return self::response($wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE status=%s AND id IN ($placeholders) ORDER BY name", $status, ...$ids), ARRAY_A));
     }
 
     public static function create_organisation(WP_REST_Request $request)
     {
         global $wpdb;
+        if (!K8_Canvas_Access::is_platform_administrator()) return self::denied();
         $name = sanitize_text_field((string) $request->get_param('name'));
         $type = sanitize_key((string) $request->get_param('organisation_type'));
         if ($name === '' || !in_array($type, ['platform', 'agency', 'client'], true)) {
@@ -88,6 +93,7 @@ final class K8_Canvas_REST
     public static function update_organisation(WP_REST_Request $request)
     {
         global $wpdb;
+        if (!K8_Canvas_Access::allows_organisation('organisation.update', absint($request['id']))) return self::denied();
         $data = ['updated_at' => current_time('mysql', true)];
         $formats = ['%s'];
         foreach (['name', 'slug'] as $field) {
@@ -106,6 +112,7 @@ final class K8_Canvas_REST
     public static function archive_organisation(WP_REST_Request $request)
     {
         global $wpdb;
+        if (!K8_Canvas_Access::allows_organisation('organisation.update', absint($request['id']))) return self::denied();
         $now = current_time('mysql', true);
         $ok = $wpdb->update(K8_Canvas_Schema::tables()['organisations'], ['status' => 'archived', 'archived_at' => $now, 'updated_at' => $now], ['id' => absint($request['id']), 'status' => 'active']);
         if ($ok > 0) {
@@ -118,7 +125,10 @@ final class K8_Canvas_REST
     {
         global $wpdb;
         $table = K8_Canvas_Schema::tables()['relationships'];
-        return self::response($wpdb->get_results("SELECT * FROM $table WHERE status = 'active' ORDER BY id", ARRAY_A));
+        $ids = K8_Canvas_Access::organisation_ids('organisation.read');
+        if (!$ids) return self::response([]);
+        $placeholders = implode(',', array_fill(0, count($ids), '%d'));
+        return self::response($wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE status='active' AND managing_organisation_id IN ($placeholders) AND managed_organisation_id IN ($placeholders) ORDER BY id", ...array_merge($ids, $ids)), ARRAY_A));
     }
 
     public static function create_relationship(WP_REST_Request $request)
@@ -126,6 +136,7 @@ final class K8_Canvas_REST
         global $wpdb;
         $manager = absint($request->get_param('managing_organisation_id'));
         $managed = absint($request->get_param('managed_organisation_id'));
+        if (!K8_Canvas_Access::is_platform_administrator()) return self::denied();
         if (!$manager || !$managed || $manager === $managed || !self::organisations_exist([$manager, $managed])) {
             return new WP_Error('k8_invalid_relationship', 'Two different, existing organisations are required.', ['status' => 400]);
         }
@@ -144,9 +155,11 @@ final class K8_Canvas_REST
         global $wpdb;
         $table = K8_Canvas_Schema::tables()['sites'];
         $owner = absint($request->get_param('owning_organisation_id'));
-        $rows = $owner
-            ? $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE owning_organisation_id = %d AND status = 'active' ORDER BY name", $owner), ARRAY_A)
-            : $wpdb->get_results("SELECT * FROM $table WHERE status = 'active' ORDER BY name", ARRAY_A);
+        if ($owner && !K8_Canvas_Access::allows_organisation('site.read', $owner)) return self::denied();
+        $owners = $owner ? [$owner] : K8_Canvas_Access::organisation_ids('site.read');
+        if (!$owners) return self::response([]);
+        $placeholders = implode(',', array_fill(0, count($owners), '%d'));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE owning_organisation_id IN ($placeholders) AND status='active' ORDER BY name", ...$owners), ARRAY_A);
         return self::response($rows);
     }
 
@@ -154,6 +167,7 @@ final class K8_Canvas_REST
     {
         global $wpdb;
         $owner = absint($request->get_param('owning_organisation_id'));
+        if (!K8_Canvas_Access::allows_organisation('site.create', $owner)) return self::denied();
         $name = sanitize_text_field((string) $request->get_param('name'));
         $url = esc_url_raw((string) $request->get_param('canonical_url'));
         if (!$owner || !self::organisations_exist([$owner]) || $name === '' || $url === '') {
@@ -173,6 +187,7 @@ final class K8_Canvas_REST
     public static function update_site(WP_REST_Request $request)
     {
         global $wpdb;
+        if (!K8_Canvas_Access::allows_site('site.update', absint($request['id']))) return self::denied();
         $data = ['updated_at' => current_time('mysql', true)];
         foreach (['name', 'canonical_url'] as $field) {
             if ($request->has_param($field)) {
@@ -192,6 +207,7 @@ final class K8_Canvas_REST
     public static function archive_site(WP_REST_Request $request)
     {
         global $wpdb;
+        if (!K8_Canvas_Access::allows_site('site.archive', absint($request['id']))) return self::denied();
         $now = current_time('mysql', true);
         $site_table = K8_Canvas_Schema::tables()['sites'];
         $organisation = (int) $wpdb->get_var($wpdb->prepare("SELECT owning_organisation_id FROM $site_table WHERE id=%d", absint($request['id'])));
@@ -208,6 +224,8 @@ final class K8_Canvas_REST
         $tables = K8_Canvas_Schema::tables();
         $organisation = absint($request->get_param('organisation_id'));
         $site = absint($request->get_param('site_id'));
+        if ($site && !K8_Canvas_Access::allows_site('feature.read', $site)) return self::denied();
+        if (!$site && !K8_Canvas_Access::allows_organisation('feature.read', $organisation)) return self::denied();
         $boundary_type = $site ? 'site' : 'organisation';
         $boundary_id = $site ?: $organisation;
         $sql = "SELECT f.*, COALESCE(a.enabled, 0) AS enabled, a.configuration
@@ -226,6 +244,11 @@ final class K8_Canvas_REST
         if (!$feature || (!$organisation && !$site) || ($organisation && $site)) {
             return new WP_Error('k8_invalid_assignment', 'A feature and organisation or site boundary are required.', ['status' => 400]);
         }
+        if ($site && !K8_Canvas_Access::allows_site('feature.update', $site)) return self::denied();
+        if ($organisation && !K8_Canvas_Access::allows_organisation('feature.update', $organisation)) return self::denied();
+        $tables = K8_Canvas_Schema::tables();
+        if (!(int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$tables['features']} WHERE id=%d AND lifecycle_status='active'", $feature))) return self::denied();
+        if ($organisation && !self::organisations_exist([$organisation])) return self::denied();
         $boundary_type = $site ? 'site' : 'organisation';
         $boundary_id = $site ?: $organisation;
         $table = K8_Canvas_Schema::tables()['feature_assignments'];
@@ -237,7 +260,8 @@ final class K8_Canvas_REST
             'configuration' => $configuration, 'updated_at' => current_time('mysql', true),
         ], ['%d', '%s', '%d', '%d', '%s', '%s']);
         if ($ok !== false) {
-            K8_Canvas_Access::audit('feature.assign', 'feature', $feature, $organisation, ['boundary_type' => $boundary_type, 'boundary_id' => $boundary_id, 'enabled' => rest_sanitize_boolean($request->get_param('enabled'))]);
+            $audit_organisation = $organisation ?: (int) $wpdb->get_var($wpdb->prepare("SELECT owning_organisation_id FROM {$tables['sites']} WHERE id=%d", $site));
+            K8_Canvas_Access::audit('feature.assign', 'feature', $feature, $audit_organisation, ['boundary_type' => $boundary_type, 'boundary_id' => $boundary_id, 'enabled' => rest_sanitize_boolean($request->get_param('enabled'))]);
         }
         return self::write_response($ok, $wpdb->insert_id, 'feature assignment');
     }
@@ -247,7 +271,11 @@ final class K8_Canvas_REST
         global $wpdb;
         $t = K8_Canvas_Schema::tables();
         $organisation = absint($request->get_param('organisation_id'));
-        $where = $organisation ? $wpdb->prepare(' AND m.organisation_id=%d', $organisation) : '';
+        if ($organisation && !K8_Canvas_Access::allows_organisation('membership.read', $organisation)) return self::denied();
+        $allowed = $organisation ? [$organisation] : K8_Canvas_Access::organisation_ids('membership.read');
+        if (!$allowed) return self::response([]);
+        $placeholders = implode(',', array_fill(0, count($allowed), '%d'));
+        $where = $wpdb->prepare(" AND m.organisation_id IN ($placeholders)", ...$allowed);
         $rows = $wpdb->get_results("SELECT m.id,m.user_id,u.user_login,u.user_email,m.organisation_id,o.name organisation_name,m.status,p.profile_key,p.name profile_name
             FROM {$t['memberships']} m JOIN {$wpdb->users} u ON u.ID=m.user_id JOIN {$t['organisations']} o ON o.id=m.organisation_id
             LEFT JOIN {$t['permission_grants']} g ON g.membership_id=m.id AND g.revoked_at IS NULL
@@ -261,6 +289,7 @@ final class K8_Canvas_REST
         global $wpdb;
         $identity = sanitize_text_field((string) $request->get_param('user'));
         $organisation = absint($request->get_param('organisation_id'));
+        if (!K8_Canvas_Access::allows_organisation('membership.update', $organisation)) return self::denied();
         $profile_key = sanitize_key((string) $request->get_param('profile_key'));
         $user = is_email($identity) ? get_user_by('email', $identity) : get_user_by('login', $identity);
         $profile = $wpdb->get_row($wpdb->prepare("SELECT id FROM " . K8_Canvas_Schema::tables()['permission_profiles'] . " WHERE profile_key=%s AND status='active'", $profile_key));
@@ -293,11 +322,12 @@ final class K8_Canvas_REST
         $tables = K8_Canvas_Schema::tables();
         $membership_id = absint($request['id']);
         $profile_key = sanitize_key((string) $request->get_param('profile_key'));
-        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active'", $membership_id));
+        $allowed = K8_Canvas_Access::organisation_ids('membership.update');
+        if (!$allowed) return self::denied();
+        $placeholders = implode(',', array_fill(0, count($allowed), '%d'));
+        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active' AND organisation_id IN ($placeholders)", $membership_id, ...$allowed));
         $profile = $wpdb->get_row($wpdb->prepare("SELECT id FROM {$tables['permission_profiles']} WHERE profile_key=%s AND status='active'", $profile_key));
-        if (!$membership || !$profile) {
-            return new WP_Error('k8_membership_not_found', 'The active membership or permission profile was not found.', ['status' => 404]);
-        }
+        if (!$membership || !$profile) return self::denied();
         $started = $wpdb->query('START TRANSACTION');
         $grant_revoke = $wpdb->query($wpdb->prepare("UPDATE {$tables['permission_grants']} SET revoked_at=%s WHERE membership_id=%d AND revoked_at IS NULL", current_time('mysql', true), $membership_id));
         $ok = $wpdb->insert($tables['permission_grants'], ['membership_id' => $membership_id, 'permission_profile_id' => (int) $profile->id, 'boundary_type' => 'organisation', 'boundary_id' => (int) $membership->organisation_id, 'created_at' => current_time('mysql', true)], ['%d', '%d', '%s', '%d', '%s']);
@@ -316,10 +346,11 @@ final class K8_Canvas_REST
         global $wpdb;
         $tables = K8_Canvas_Schema::tables();
         $membership_id = absint($request['id']);
-        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active'", $membership_id));
-        if (!$membership) {
-            return new WP_Error('k8_membership_not_found', 'The active membership was not found.', ['status' => 404]);
-        }
+        $allowed = K8_Canvas_Access::organisation_ids('membership.update');
+        if (!$allowed) return self::denied();
+        $placeholders = implode(',', array_fill(0, count($allowed), '%d'));
+        $membership = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$tables['memberships']} WHERE id=%d AND status='active' AND organisation_id IN ($placeholders)", $membership_id, ...$allowed));
+        if (!$membership) return self::denied();
         $now = current_time('mysql', true);
         $started = $wpdb->query('START TRANSACTION');
         $grant_write = $wpdb->query($wpdb->prepare("UPDATE {$tables['permission_grants']} SET revoked_at=%s WHERE membership_id=%d AND revoked_at IS NULL", $now, $membership_id));
@@ -339,7 +370,10 @@ final class K8_Canvas_REST
         global $wpdb;
         $limit = min(100, max(1, absint($request->get_param('limit') ?: 50)));
         $t = K8_Canvas_Schema::tables();
-        $rows = $wpdb->get_results($wpdb->prepare("SELECT a.*,u.user_login FROM {$t['audit_events']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.actor_user_id ORDER BY a.id DESC LIMIT %d", $limit), ARRAY_A);
+        $allowed = K8_Canvas_Access::organisation_ids('audit.read');
+        if (!$allowed) return self::response([]);
+        $placeholders = implode(',', array_fill(0, count($allowed), '%d'));
+        $rows = $wpdb->get_results($wpdb->prepare("SELECT a.*,u.user_login FROM {$t['audit_events']} a LEFT JOIN {$wpdb->users} u ON u.ID=a.actor_user_id WHERE a.organisation_id IN ($placeholders) ORDER BY a.id DESC LIMIT %d", ...array_merge($allowed, [$limit])), ARRAY_A);
         return self::response($rows);
     }
 
@@ -374,5 +408,10 @@ final class K8_Canvas_REST
             return new WP_Error('k8_not_found', sprintf('Active %s not found or no values changed.', $resource), ['status' => 404]);
         }
         return new WP_REST_Response(['updated' => true], 200);
+    }
+
+    private static function denied(): WP_Error
+    {
+        return new WP_Error('k8_forbidden', 'You do not have permission to perform this action.', ['status' => 403]);
     }
 }
