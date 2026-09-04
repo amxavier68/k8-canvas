@@ -2,7 +2,7 @@
 /**
  * Plugin Name: K8 Canvas
  * Description: Governed, visibility-first building for WordPress.
- * Version: 0.3.1-alpha.2
+ * Version: 0.4.0-alpha.1
  * Requires at least: 6.6
  * Requires PHP: 8.1
  * Author: Kollabor8 Web Collectives
@@ -11,7 +11,7 @@
 
 defined('ABSPATH') || exit;
 
-define('K8_CANVAS_VERSION', '0.3.1-alpha.2');
+define('K8_CANVAS_VERSION', '0.4.0-alpha.1');
 define('K8_CANVAS_PLUGIN_FILE', __FILE__);
 define('K8_CANVAS_PLUGIN_DIR', plugin_dir_path(__FILE__));
 
