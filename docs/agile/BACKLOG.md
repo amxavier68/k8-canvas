@@ -56,11 +56,20 @@ Canvas can serve Kollabor8 and agency-level customers without entangling ownersh
 
 **Current gate:**
 
-- CI PHP syntax validation must pass;
-- schema creation must be exercised in a disposable WordPress instance;
-- duplicate, invalid and cross-boundary requests must have contract tests;
-- memberships, PBAC grants and an append-only audit ledger must be implemented;
-- non-administrator API access remains prohibited until isolation tests pass.
+- CI PHP syntax validation must continue to pass;
+- the disposable WordPress/MySQL PBAC contract must prove clean installation and
+  idempotent schema upgrade;
+- Owner A, Viewer A and Owner B must pass the two-organisation access matrix;
+- guessed-ID cross-boundary reads and mutations must be denied without state or
+  audit changes;
+- profile replacement must leave one active grant and revocation must take effect
+  on the caller's next request;
+- non-administrator access may not ship until this runtime contract passes and the
+  owner accepts its evidence.
+
+**Implemented but not locked:** memberships, permission profiles and grants,
+server-side PBAC resolution, REST enforcement, immediate revocation and the
+append-only audit ledger. Their presence in code is not runtime proof.
 
 **Exclusions:** billing, subscriptions, autonomous publishing and unrestricted
 customer access.
