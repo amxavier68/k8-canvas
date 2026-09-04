@@ -43,3 +43,7 @@ administrator-only endpoints under `/wp-json/k8-canvas/v1` for organisations,
 agency-client relationships, sites, features and feature assignments. This is a
 bootstrap boundary: customer access stays closed until membership, PBAC and tenant
 isolation tests are complete.
+
+The WordPress **K8 Canvas** menu now provides the first visible dashboard. An
+administrator can create organisations, connect agency-client relationships,
+register sites, switch context and control features without leaving WordPress.
